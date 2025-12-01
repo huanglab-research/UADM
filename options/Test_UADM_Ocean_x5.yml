@@ -1,0 +1,175 @@
+# general settings
+name: Test_UADM_Ocean_x5
+model_target: basicsr.models.ocean_model.OceanModel
+scale: 5
+num_gpu: 1
+manual_seed: 0
+# find_unused_parameters: True
+queue_size: 160
+
+# dataset and data loader settings
+datasets:
+  val_1:
+    name: Ocean
+    type: OceanDataset
+    dataroot_gt: ./datasets/Oceansst/patch_sst_testset/OSTIA
+    dataroot_lq: ./datasets/Oceansst/patch_sst_testset/OISST
+    meta_info_file: ./datasets/Oceansst/patch_sst_testset/testset.csv
+    io_backend:
+      type: disk
+    batch_size: 32
+
+# network structures
+network_g:
+  target: basicsr.archs.swin_unet_arch.UNetModelSwin
+  params:
+    image_size: 64
+    in_channels: 25
+    model_channels: 160
+    out_channels: 1
+    attention_resolutions: [64,32,16,8]
+    dropout: 0
+    channel_mult: [1, 2, 2, 4]
+    num_res_blocks: [2, 2, 2, 2]
+    conv_resample: True
+    dims: 2
+    use_fp16: False
+    num_head_channels: 32
+    use_scale_shift_norm: True
+    resblock_updown: False
+    swin_depth: 2
+    swin_embed_dim: 192
+    window_size: 8
+    mlp_ratio: 4
+    cond_lq: True
+    lq_size: 64
+    num_feat: 128
+
+diffusion:
+  un: 1.0
+  min_noise: 0.4
+  target: models.script_util.create_gaussian_diffusion
+  params:
+    sf: 5
+    schedule_name: exponential
+    schedule_kwargs:
+      power: 0.2
+    etas_end: 0.99
+    steps: 5
+    min_noise_level: 0.2
+    kappa: 2.5
+    weighted_mse: False
+    predict_type: xstart
+    timestep_respacing: ~
+    scale_factor: 1.0
+    normalize_input: True
+    latent_flag: False
+
+# path
+path:
+  pretrain_network_g: experiments/000_UPSR_Ocean_x5/models/net_g_200000.pth
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  use_fp16: true
+  ema_decay: 0.999
+  optim_g:
+    type: Adam
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+  optim_d:
+    type: Adam
+    lr: !!float 5e-5
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [200000]
+    gamma: 0.5
+
+  total_iter: 200000
+  warmup_iter: 5000
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+  adversarial_opt:
+    type: GANLoss
+    gan_type: gan
+    real_label_val: 1.0
+    fake_label_val: 0.0
+    loss_weight: 1
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  suffix: ~
+  save_img: true
+  pbar: true
+  desired_min_size: 64
+  chop_size: 512
+  chop_stride: 448
+  chop_bs: 1
+  noise_repeat: false
+
+  metrics:
+    rmse:
+      fr: true
+      better: lower
+
+    r2:
+      fr: true
+      better: higher
+
+    psnr:
+      fr: true
+      better: higher
+
+    ssim:
+      fr: true
+      better: higher
+
+    bias:
+      fr: true
+      better: lower
+
+    delta_rmse:
+      fr: true
+      better: lower
+
+    delta_r2:
+      fr: true
+      better: higher
+
+    delta_psnr:
+      fr: true
+      better: higher
+
+    delta_ssim:
+      fr: true
+      better: higher
+
+    delta_bias:
+      fr: true
+      better: lower
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

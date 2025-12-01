@@ -14,12 +14,6 @@ In the discrimination stage, an uncertainty-aware adversarial learning scheme im
 Guided by uncertainty, UADM’s non-uniform modeling concentrates its representational capacity on dynamical structures, thereby effectively enhancing the recovery of fine-scale SST features.
 Extensive experiments across global and major ocean basins SST demonstrate that UADM consistently outperforms analysis products and state-of-the-art learning-based methods, yielding results that are not only closer to in situ observations but also capture fine-scale variability.
 
->
-
-## Overview
-
-<img width="800" src="figures/arch.png">
-
 ## Contents
 
 1. [Environment](#environment)

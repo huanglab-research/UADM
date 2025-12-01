@@ -46,7 +46,7 @@ python setup.py develop
 - Cut the training [OISST](https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr) and [OSTIA](https://ghrsst-pp.metoffice.gov.uk/ostia-website/index.html) products into patches and put them in the folder `./datasets`.
 
 ### Training Commands
-- Refer to the training configuration files in `./options/train` folder for detailed settings.
+- Refer to the training configuration files in `./options/` folder for detailed settings.
 ```bash
 # batch size = 2 (GPUs) × 16 (per GPU)
 
@@ -63,7 +63,7 @@ CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --use-env --nproc_pe
 
 #### Testing Commands
 
-- Refer to the testing configuration files in `./options/test` folder for detailed settings.
+- Refer to the testing configuration files in `./options/` folder for detailed settings.
 ```bash
 CUDA_VISIBLE_DEVICES=0 python test.py -opt options/Test_UADM_Ocean_x5.yml
 ```

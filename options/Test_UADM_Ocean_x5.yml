@@ -67,7 +67,7 @@ diffusion:
 
 # path
 path:
-  pretrain_network_g: experiments/000_UPSR_Ocean_x5/models/net_g_200000.pth
+  pretrain_network_g: experiments/000_UADM_Ocean_x5/models/net_g_200000.pth
   strict_load_g: true
   resume_state: ~
 

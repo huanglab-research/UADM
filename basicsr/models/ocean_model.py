@@ -121,12 +121,17 @@ class OceanModel(GANModel):
                 self.model_ema(0)  # copy net_g weight
             self.net_g_ema.eval()
 
+        if train_opt.get('perceptual_opt'):
+            self.cri_perceptual = True
+            self.perceptual_weight = train_opt['perceptual_opt']['lpips_weight']
+        else:
+            self.cri_perceptual = False
+
         # set up optimizers and schedulers
         self.setup_optimizers()
         self.setup_schedulers()
 
         self.amp_scaler = amp.GradScaler() if self.opt['train'].get('use_fp16', False) else None
-
 
     def backward_step(self, dif_loss_wrapper, micro_lq, micro_gt, micro_strain, num_grad_accumulate, tt, current_iter):
         loss_dict = OrderedDict()
@@ -145,12 +150,54 @@ class OceanModel(GANModel):
             loss_dict['l_pix'] = losses['mse'].mean() / num_grad_accumulate
             l_total = loss_dict['l_pix']
 
+            # GAN loss for G
+            if self.cri_gan:
+
+                M_G = torch.bernoulli(micro_strain)
+                I_G = x0_pred * M_G + micro_gt * (1 - M_G)
+
+                for p in self.net_d.parameters():
+                    p.requires_grad = False  # freeze D
+
+                I_G = torch.nan_to_num(I_G, nan=0.0, posinf=1.0, neginf=0.0)
+                fake_g_pred = self.net_d(I_G * 0.5 + 0.5)
+                loss_dict['l_gan_raw'] = self.cri_gan(fake_g_pred, True, False) / num_grad_accumulate
+
+                adv_weight = self.opt['train']['adversarial_opt'].get('loss_weight', 1e-3)
+                loss_dict['l_gan'] = adv_weight * loss_dict['l_gan_raw']
+                l_total += loss_dict['l_gan'].mean()
+
         # backward G
         if self.amp_scaler is None:
             l_total.backward()
         else:
             self.amp_scaler.scale(l_total).backward()
 
+        # -----------------
+        # Discriminator backward
+        # -----------------
+        if self.cri_gan:
+            with context():
+                for p in self.net_d.parameters():
+                    p.requires_grad = True  # unfreeze D
+
+                # real
+                real = torch.nan_to_num(micro_gt, nan=0.0, posinf=1.0, neginf=0.0)
+                real_d_pred = self.net_d(real * 0.5 + 0.5)
+                loss_dict['l_d_real'] = self.cri_gan(real_d_pred, True, True) / num_grad_accumulate
+
+                # fake (detach G output)
+                fake = torch.nan_to_num(x0_pred.detach(), nan=0.0, posinf=1.0, neginf=0.0)
+                fake_d_pred = self.net_d(fake * 0.5 + 0.5)
+                loss_dict['l_d_fake'] = self.cri_gan(fake_d_pred, False, True) / num_grad_accumulate
+
+                l_d_total = loss_dict['l_d_real'] + loss_dict['l_d_fake']
+
+            # backward D
+            if self.amp_scaler is None:
+                l_d_total.backward()
+            else:
+                self.amp_scaler.scale(l_d_total).backward()
 
         return loss_dict, x_t, x0_pred
 
@@ -185,15 +232,16 @@ class OceanModel(GANModel):
                 micro_lq_bicubic = torch.nn.functional.interpolate(
                         micro_lq, scale_factor=self.sf, mode='bicubic', align_corners=False,
                         )
+
                 if self.opt['diffusion']['un'] > 0:
-                    raw = compute_geostrophic(micro_lq_bicubic, self.lat, self.lon)
-                    raw = torch.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
-                    raw = raw.abs()
-                    p = raw / (raw.amax(dim=(-1, -2, -3), keepdim=True) + 1e-8)
+                    micro_strain = compute_geostrophic(micro_lq_bicubic, self.lat, self.lon)
+                    un_max = self.opt['diffusion']['un']
                     b_un = self.opt['diffusion']['min_noise']
-                    micro_uncertainty = torch.clamp(b_un + (1 - b_un) * p, 1e-6, 1 - 1e-6)
+                    s_un = self.opt['diffusion']['threshold']
+                    micro_uncertainty = torch.abs(micro_strain).clamp_(0., un_max) / un_max
+                    micro_uncertainty = b_un + (1 - b_un) / s_un * micro_uncertainty
                 else:
-                    micro_uncertainty = torch.full_like(micro_lq_bicubic, 0.5)
+                    micro_uncertainty = torch.ones_like(micro_lq_bicubic)
 
             # n
             noise = torch.randn_like(micro_lq_bicubic)
@@ -257,8 +305,9 @@ class OceanModel(GANModel):
             micro_strain = compute_geostrophic(y_bicubic, self.lat, self.lon)
             un_max = self.opt['diffusion']['un']
             b_un = self.opt['diffusion']['min_noise']
+            s_un = self.opt['diffusion']['threshold']
             un = torch.abs(micro_strain).clamp_(0., un_max) / un_max
-            un = b_un + (1 - b_un) * un
+            un = b_un + (1 - b_un) / s_un * un
         else:
             un = torch.ones_like(y_bicubic)
 
@@ -417,7 +466,7 @@ class OceanModel(GANModel):
             del self.metric_results
     def get_current_visuals(self):
         lq_max = 35.0
-        lq_min = -2.0
+        lq_min = -5.0
         self.lq = (self.lq) * (lq_max - lq_min) + lq_min
         self.gt = (self.gt) * (lq_max - lq_min) + lq_min
         self.output = (self.output) * (lq_max - lq_min) + lq_min

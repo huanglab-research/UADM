@@ -8,11 +8,6 @@ from datetime import datetime
 import torch.nn.functional as F
 from sklearn.metrics import r2_score
 def calculate_delta(img):
-    """
-    计算 ΔSST (SST梯度)，返回梯度的模值
-    img: 2D numpy array, SST 场
-    """
-    # numpy.gradient 默认 axis=(0->y方向, 1->x方向)
     dy, dx = np.gradient(img)
     grad_mag = np.sqrt(dx**2 + dy**2)
     return grad_mag
@@ -224,129 +219,77 @@ class DeltaSSIMOceanMetric(nn.Module):
             ssim_values.append(ssim)
         return ssim_values
 
+
 def compute_strain(u: torch.Tensor, v: torch.Tensor, dx: torch.Tensor, dy: torch.Tensor):
-    """
-    使用 torch 根据 u, v, dx, dy 计算 total strain magnitude（总形变率）
-
-    输入:
-        u:  (B, 1, H, W) — zonal 风速 (单位: m/s)
-        v:  (B, 1, H, W) — meridional 风速 (单位: m/s)
-        dx: (B, 1, H, W) — 经向网格间距 (单位: m)
-        dy: (B, 1, H, W) — 纬向网格间距 (单位: m)
-
-    输出:
-        strain: (B, 1, H, W) — 总形变率 (单位: 1/s)
-    """
-
-    # === 中心差分函数 ===
     def central_diff(tensor, dim, spacing):
-        pad = [0, 0, 0, 0]
-        pad[2 * (3 - dim)] = 1
-        pad[2 * (3 - dim) + 1] = 1
-        # tensor_pad = F.pad(tensor, pad=pad, mode='replicate')
-        # spacing_pad = F.pad(spacing, pad=pad, mode='replicate')
         return (tensor.roll(-1, dims=dim) - tensor.roll(1, dims=dim)) / (2 * spacing)
 
-    # === 分别计算偏导 ===
     B, _, H, W = u.shape
     du_dx = central_diff(u, dim=3, spacing=dx)  # ∂u/∂x
     dv_dy = central_diff(v, dim=2, spacing=dy)  # ∂v/∂y
     dv_dx = central_diff(v, dim=3, spacing=dx)  # ∂v/∂x
     du_dy = central_diff(u, dim=2, spacing=dy)  # ∂u/∂y
 
-    # === 应变量公式 ===
     strain = torch.sqrt((du_dx - dv_dy) ** 2 + (dv_dx + du_dy) ** 2)
 
-    # === Norm ===
     strain_min = strain.view(B, -1).min(dim=1)[0].view(B, 1, 1, 1)
     strain_max = strain.view(B, -1).max(dim=1)[0].view(B, 1, 1, 1)
     strain_norm = (strain - strain_min) / (strain_max - strain_min + 1e-8)  # [B, C, H, W]
 
-    return strain_norm  # 单位: 1/s
+    return strain_norm
+
+
 def compute_dx_dy(lat: torch.Tensor, lon: torch.Tensor):
     """
     lat: (B, 1, H, 1)
     lon: (B, 1, 1, W)
     return: dx, dy (meters), shape: (B, 1, H, W)
     """
-    R = 6371000  # Earth radius in meters
+    R = 6371000
 
     B, _, H, W = lat.shape[0], 1, lat.shape[2], lon.shape[3]
 
-    # 纬度弧度，用于 cos(φ)
     lat_rad = lat * torch.pi / 180.0  # (B, 1, H, 1)
-    cos_phi = torch.cos(lat_rad)     # (B, 1, H, 1)
+    cos_phi = torch.cos(lat_rad)  # (B, 1, H, 1)
 
-    # 计算间距：假设规则网格，每个样本纬度间距都一致（行方向）
-    delta_lat = torch.abs(lat[:, :, 1:, :] - lat[:, :, :-1, :]).mean(dim=2, keepdim=True) * torch.pi / 180  # (B, 1, 1, 1)
-    delta_lon = torch.abs(lon[:, :, :, 1:] - lon[:, :, :, :-1]).mean(dim=3, keepdim=True) * torch.pi / 180  # (B, 1, 1, 1)
+    delta_lat = torch.abs(lat[:, :, 1:, :] - lat[:, :, :-1, :]).mean(dim=2,
+                                                                     keepdim=True) * torch.pi / 180  # (B, 1, 1, 1)
+    delta_lon = torch.abs(lon[:, :, :, 1:] - lon[:, :, :, :-1]).mean(dim=3,
+                                                                     keepdim=True) * torch.pi / 180  # (B, 1, 1, 1)
 
     dy = R * delta_lat  # (B, 1, 1, 1)
     dx = R * delta_lon * cos_phi  # (B, 1, H, 1)
 
     dx = dx.expand(-1, -1, -1, W)  # (B,1,H,W)
-    dy = dy.expand(-1, -1, H, W)   # (B,1,H,W)
+    dy = dy.expand(-1, -1, H, W)  # (B,1,H,W)
 
     return dx, dy
-def compute_geostrophic(ssh: torch.Tensor, lat: torch.Tensor, lon: torch.Tensor):
-    """
-    计算地转动能 Kinetic Energy
 
-    输入:
-        ssh: (B, 1, H, W) — 海面高度 η（单位 m）
-        lat: (B, 1, H, 1) — 纬度（单位 °）
-        lon: (B, 1, 1, W) — 经度（单位 °）
 
-    返回:
-        ke:  (B, 1, H, W) — 动能场（单位 m²/s²）
-    """
-    lat = lat.to('cuda')
-    lon = lon.to('cuda')
+def compute_sst_strain(sst: torch.Tensor, lat: torch.Tensor, lon: torch.Tensor):
+    lat = lat.to(sst.device)
+    lon = lon.to(sst.device)
 
-    g = 9.81  # 重力加速度
-    Omega = 7.2921e-5  # 地球自转角速度
-    B, _, H, W = ssh.shape
+    B, _, H, W = sst.shape
 
-    # === Step 1: Coriolis 参数 f0 = 2Ωsin(φ) ===
-    phi = lat * torch.pi / 180.0  # 弧度 (B, 1, H, 1)
-    f0 = 2 * Omega * torch.sin(phi)  # (B, 1, H, 1)
-    f0 = f0.expand(-1, -1, -1, W)  # (B, 1, H, W)
+    psi = sst  # (B, 1, H, W)
 
-    # 避免 f0 为 0，防止除法爆炸
-    f0 = torch.where(torch.abs(f0) < 1e-10, torch.full_like(f0, 1e-10), f0)
+    dx, dy = compute_dx_dy(lat, lon)  # (B, 1, H, W)
 
-    # === Step 2: Streamfunction ψ = g / f0 * ssh ===
-    psi = (g / f0) * ssh  # (B, 1, H, W)
+    def central_diff_x(tensor, dx_tensor):
+        return (tensor[:, :, :, 2:] - tensor[:, :, :, :-2]) / (2 * dx_tensor[:, :, :, 1:-1])  # (B,1,H,W-2)
 
-    # === Step 3: 网格间距 dx, dy（单位：米） ===
-    dx, dy = compute_dx_dy(lat, lon)  # 均为 (B, 1, H, W)
+    def central_diff_y(tensor, dy_tensor):
+        return (tensor[:, :, 2:, :] - tensor[:, :, :-2, :]) / (2 * dy_tensor[:, :, 1:-1, :])  # (B,1,H-2,W)
 
-    # === Step 4: 中心差分近似 u = -∂ψ/∂y, v = ∂ψ/∂x ===
-    def central_diff_x(tensor, dx):
-        return (tensor[:, :, :, 2:] - tensor[:, :, :, :-2]) / (2 * dx[:, :, :, 1:-1])  # (B,1,H,W-2)
-
-    def central_diff_y(tensor, dy):
-        return (tensor[:, :, 2:, :] - tensor[:, :, :-2, :]) / (2 * dy[:, :, 1:-1, :])  # (B,1,H-2,W)
-
-    # 裁剪中间区域做差分
-    psi_crop = psi  # (B,1,H,W)
-    dpsi_dx = central_diff_x(psi_crop, dx)  # (B,1,H,W-2)
-    dpsi_dy = central_diff_y(psi_crop, dy)  # (B,1,H-2,W)
-
-    # 为了形状一致，裁剪 ψ
-    psi_inner = psi[:, :, 1:-1, 1:-1]  # (B,1,H-2,W-2)
+    dpsi_dx = central_diff_x(psi, dx)  # (B,1,H,W-2)
+    dpsi_dy = central_diff_y(psi, dy)  # (B,1,H-2,W)
 
     v = dpsi_dx[:, :, 1:-1, :]  # (B,1,H-2,W-2)
     u = -dpsi_dy[:, :, :, 1:-1]  # (B,1,H-2,W-2)
+
     v = F.pad(v, (1, 1, 1, 1), mode='replicate')
     u = F.pad(u, (1, 1, 1, 1), mode='replicate')
-
-    # # === Step 5: Kinetic Energy = 0.5 * (u² + v²) ===
-    # ke = 0.5 * (u ** 2 + v ** 2)  # (B,1,H-2,W-2)
-    # # === Step 6: Norm ===
-    # ke_min = ke.view(B, -1).min(dim=1)[0].view(B, 1, 1, 1)
-    # ke_max = ke.view(B, -1).max(dim=1)[0].view(B, 1, 1, 1)
-    # R_norm = (ke - ke_min) / (ke_max - ke_min + 1e-8)  # [B, C, H, W]
 
     strain = compute_strain(u, v, dx, dy)
 

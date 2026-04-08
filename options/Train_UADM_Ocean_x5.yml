@@ -73,6 +73,7 @@ network_d:
 diffusion:
   un: 1.0
   min_noise: 0.4
+  threshold: 0.3
   target: models.script_util.create_gaussian_diffusion
   params:
     sf: 5
@@ -119,7 +120,7 @@ train:
   total_iter: 200000
   warmup_iter: 5000
   adjust_adv_weight: True
-  adjust_adv_interval: 5000   # 每1000步调整一次
+  adjust_adv_interval: 5000
 
   # losses
   pixel_opt:
@@ -132,7 +133,7 @@ train:
     gan_type: gan
     real_label_val: 1.0
     fake_label_val: 0.0
-    loss_weight: 1
+    loss_weight: 0.001
 
 # validation settings
 val:

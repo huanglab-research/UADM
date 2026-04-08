@@ -5,14 +5,16 @@ This repository is an official implementation of the paper "Uncertainty-Guided A
 By Lei Huang, Ke Zhang, Xiaodong Wang,  Jie Nie and Zhiqiang Wei.
 
 > **Abstract:** 
-Sea surface temperature (SST) plays a vital role in regulating the Earth's climate system, yet many important processes occur at fine spatial scales that remain unrevealed by most observation- or model-based products.
-Learning-based super-resolution has emerged as a promising approach to obtaining high-resolution SST field. 
-However, these methods often struggle in key dynamical structures, where high-uncertainty details become particularly susceptible to attenuation during global reconstruction optimization.
-To address this limitation, we propose an **u**ncertainty-guided **a**dversarial **d**iffusion **m**odel, UADM. It explicitly quantifies the heterogeneous reconstruction difficulty based on physics as uncertainty, employing it as a guiding signal to reformulate both the generation and discrimination stages.
-In the generation stage, an uncertainty-perturbed diffusion model injects anisotropic Gaussian noise, assigning stronger perturbations to regions with pronounced uncertainty to enrich the transition from low- to high-resolution representations. 
-In the discrimination stage, an uncertainty-aware adversarial learning scheme imposes pixel-level constraints that deliver stronger feedback to uncertain regions, thereby encouraging the generation to better match the target distributions.
-Guided by uncertainty, UADM’s non-uniform modeling concentrates its representational capacity on dynamical structures, thereby effectively enhancing the recovery of fine-scale SST features.
-Extensive experiments across global and major ocean basins SST demonstrate that UADM consistently outperforms analysis products and state-of-the-art learning-based methods, yielding results that are not only closer to in situ observations but also capture fine-scale variability.
+> Sea surface temperature (SST) plays a vital role in regulating the Earth's climate system, yet many important processes occur at fine spatial scales that remain unrevealed by most observation- or model-based products.
+> Learning-based super-resolution has emerged as a promising approach to obtaining high-resolution SST field. 
+> However, these methods often struggle in key dynamical structures, where high-uncertainty details become particularly susceptible to attenuation during global reconstruction optimization.
+> To address this limitation, we propose an **u**ncertainty-guided **a**dversarial **d**iffusion **m**odel, UADM. It explicitly quantifies the heterogeneous reconstruction difficulty based on physics as uncertainty, employing it as a guiding signal to reformulate both the generation and discrimination stages.
+> In the generation stage, an uncertainty-perturbed diffusion model injects anisotropic Gaussian noise, assigning stronger perturbations to regions with pronounced uncertainty to enrich the transition from low- to high-resolution representations. 
+> In the discrimination stage, an uncertainty-aware adversarial learning scheme imposes pixel-level constraints that deliver stronger feedback to uncertain regions, thereby encouraging the generation to better match the target distributions.
+> Guided by uncertainty, UADM’s non-uniform modeling concentrates its representational capacity on dynamical structures, thereby effectively enhancing the recovery of fine-scale SST features.
+> Extensive experiments across global and major ocean basins SST demonstrate that UADM consistently outperforms analysis products and state-of-the-art learning-based methods, yielding results that are not only closer to in situ observations but also capture fine-scale variability.
+
+<img width="800" src="figures/arch.png">
 
 ## Contents
 
@@ -74,8 +76,20 @@ CUDA_VISIBLE_DEVICES=0 python test.py -opt options/Test_UADM_Ocean_x5.yml
 <img width="800" src="figures/scatter.png">
 
 ## Acknowledgements
+
 We appreciate the great work of [BasicSR](https://github.com/XPixelGroup/BasicSR) and [ResShift](https://github.com/zsyOAOA/ResShift/tree/journal), etc. Please refer to the original repo for more usage and documents.
 
-Feel free to contact me if there is any question. (Lei Huang: [huangl@ouc.edu.cn](mailto:huangl@ouc.edu.cn), Ke Zhang: [itzhangke@stu.ouc.edu.cn](mailto:itzhangke@stu.ouc.edu.cn), Xiaodong Wang: [wangxiaodong@ouc.edu.cn](mailto:wangxiaodong@ouc.edu.cn))
+## Cite
 
-Note: The source code is currently incomplete and will be fully released once the manuscript is accepted by the journal.
+```
+@ARTICLE{huang2026uncertainty,
+  author={Huang, Lei and Zhang, Ke and Wang, Xiaodong and Nie, Jie and Wei, Zhiqiang},
+  journal={IEEE Transactions on Geoscience and Remote Sensing}, 
+  title={Uncertainty-Guided Adversarial Diffusion Model for Sea Surface Temperature Super-Resolution}, 
+  year={2026},
+  volume={64},
+  pages={1-13}}
+```
+
+
+

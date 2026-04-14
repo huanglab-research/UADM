@@ -1,1 +1,0 @@
-The training results are saved in this path.
